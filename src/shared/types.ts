@@ -23,6 +23,7 @@ export interface UserSettings {
   guardRiskyQueries: boolean;
   guardAutocomplete: boolean;
   strictCharacterSpoilerMode: boolean;
+  useMlClassifier: boolean;
 }
 
 export interface DetectionRulePack {
@@ -34,9 +35,10 @@ export interface DetectionRulePack {
 }
 
 export interface SpoilerReason {
-  kind: "explicit" | "characterDeath" | "ending" | "context" | "title";
+  kind: "explicit" | "characterDeath" | "ending" | "context" | "title" | "ml";
   pattern?: string;
   matchedText?: string;
+  score?: number;
 }
 
 export interface DetectionResult {
@@ -45,4 +47,6 @@ export interface DetectionResult {
   shouldMask: boolean;
   confidence: "low" | "medium" | "high";
   reasons: SpoilerReason[];
+  mlProbability?: number;
+  gate?: "obviousHit" | "obviousMiss" | "needsMl" | "heuristicFallback";
 }

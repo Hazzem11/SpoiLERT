@@ -62,12 +62,13 @@ Users can safely search for shows and movies with little to no spoiler exposures
   - Optional season/episode progress
 - Local-only processing and storage (no backend required for MVP).
 - Toggle extension on/off per tab and globally.
+- Optional on-device DistilBERT spoiler classifier via Transformers.js (hybrid with heuristics).
 
 ### Out of Scope (MVP)
 
 - Non-Google search engines.
 - Social platforms (X, Reddit, YouTube comments, etc.).
-- Full NLP model hosting or cloud inference.
+- Cloud NLP inference (user text stays on-device).
 - Cross-device sync.
 - Mobile browser support.
 

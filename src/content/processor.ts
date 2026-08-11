@@ -1,5 +1,15 @@
 import { evaluateSpoilerRisk } from "../shared/detector/spoilerDetector";
+import {
+  buildClassifierInput,
+  decideHybridGate,
+  ML_MASK_THRESHOLDS,
+  mlProbabilityToConfidence,
+  shouldMaskFromMlProbability
+} from "../shared/detector/hybridGate";
 import { hasSpoilerIntent } from "../shared/detector/queryRisk";
+import { ML_MODEL_VERSION } from "../shared/messaging/classifier";
+import { requestClassifyBatch } from "../shared/messaging/client";
+import type { DetectionResult } from "../shared/types";
 import {
   GOOGLE_AI_OVERVIEW_SELECTORS,
   GOOGLE_AUTOCOMPLETE_SELECTORS,
@@ -22,6 +32,13 @@ interface CandidateElement {
   kind: CandidateKind;
 }
 
+interface PendingCandidate {
+  element: HTMLElement;
+  kind: CandidateKind;
+  scopedText: string;
+  heuristic: DetectionResult;
+}
+
 export class ContentProcessor {
   private readonly lastSignatures = new WeakMap<HTMLElement, string>();
   private config: ContentRuntimeConfig;
@@ -34,46 +51,146 @@ export class ContentProcessor {
     this.config = config;
   }
 
-  public processRoot(root: ParentNode): void {
-    const candidates = collectCandidateElements(root);
-    for (const candidate of candidates.slice(0, MAX_CANDIDATES_PER_PASS)) {
-      this.processElement(candidate.element, candidate.kind);
+  public async processRoot(root: ParentNode): Promise<void> {
+    const candidates = collectCandidateElements(root).slice(0, MAX_CANDIDATES_PER_PASS);
+    const pendingMl: PendingCandidate[] = [];
+
+    for (const candidate of candidates) {
+      const prepared = this.prepareCandidate(candidate.element, candidate.kind);
+      if (!prepared) {
+        continue;
+      }
+      if (prepared.action === "queueMl") {
+        pendingMl.push(prepared.pending);
+        continue;
+      }
+      this.applyDecision(prepared.pending.element, prepared.pending.kind, prepared.result, prepared.pending.scopedText);
+    }
+
+    if (pendingMl.length === 0) {
+      return;
+    }
+
+    const watchTitles = this.config.watchItems.map((item) => item.title);
+    const texts = pendingMl.map((item) => buildClassifierInput(item.scopedText, watchTitles));
+    const response = await requestClassifyBatch(texts);
+
+    for (let index = 0; index < pendingMl.length; index += 1) {
+      const pending = pendingMl[index]!;
+      let result: DetectionResult;
+      const mlResult = response.results?.[index];
+
+      if (!response.ok || !mlResult) {
+        result = {
+          ...pending.heuristic,
+          gate: "heuristicFallback"
+        };
+      } else {
+        const probability = mlResult.score;
+        const threshold = ML_MASK_THRESHOLDS[this.config.sensitivity];
+        result = {
+          score: probability,
+          threshold,
+          shouldMask: shouldMaskFromMlProbability(probability, this.config.sensitivity),
+          confidence: mlProbabilityToConfidence(probability),
+          reasons: [
+            ...pending.heuristic.reasons,
+            {
+              kind: "ml",
+              matchedText: mlResult.label,
+              score: probability
+            }
+          ],
+          mlProbability: probability,
+          gate: "needsMl"
+        };
+      }
+
+      this.applyDecision(pending.element, pending.kind, result, pending.scopedText);
     }
   }
 
-  public processElement(element: HTMLElement, kind: CandidateKind = "result"): void {
+  public async processElement(element: HTMLElement, kind: CandidateKind = "result"): Promise<void> {
+    await this.processRoot(element);
+    void kind;
+  }
+
+  private prepareCandidate(
+    element: HTMLElement,
+    kind: CandidateKind
+  ):
+    | { action: "done"; pending: PendingCandidate; result: DetectionResult }
+    | { action: "queueMl"; pending: PendingCandidate }
+    | null {
     if (!this.isGuardEnabledForKind(kind)) {
       clearMask(element);
-      return;
+      return null;
     }
     if (isIgnoredElement(element)) {
-      return;
+      return null;
     }
 
     const text = (element.innerText || element.textContent || "").trim();
     if (text.length < MIN_TEXT_LENGTH) {
-      return;
+      return null;
     }
     const scopedText = text.length > MAX_TEXT_LENGTH ? text.slice(0, MAX_TEXT_LENGTH) : text;
 
     const signature = this.buildSignature(scopedText);
     if (this.lastSignatures.get(element) === signature) {
-      return;
+      return null;
     }
     this.lastSignatures.set(element, signature);
 
     if (!this.config.enabled) {
       clearMask(element);
-      return;
+      return null;
     }
 
-    const result = evaluateSpoilerRisk({
+    const heuristic = evaluateSpoilerRisk({
       text: scopedText,
       sensitivity: this.config.sensitivity,
       watchItems: this.config.watchItems,
       rulePack: this.config.rulePack,
       strictCharacterSpoilerMode: this.config.strictCharacterSpoilerMode
     });
+
+    const pending: PendingCandidate = { element, kind, scopedText, heuristic };
+    const gate = decideHybridGate(heuristic);
+
+    if (gate === "obviousHit") {
+      return {
+        action: "done",
+        pending,
+        result: { ...heuristic, shouldMask: true, gate: "obviousHit" }
+      };
+    }
+
+    if (gate === "obviousMiss") {
+      return {
+        action: "done",
+        pending,
+        result: { ...heuristic, shouldMask: false, gate: "obviousMiss" }
+      };
+    }
+
+    if (!this.config.useMlClassifier) {
+      return {
+        action: "done",
+        pending,
+        result: { ...heuristic, gate: "heuristicFallback" }
+      };
+    }
+
+    return { action: "queueMl", pending };
+  }
+
+  private applyDecision(
+    element: HTMLElement,
+    kind: CandidateKind,
+    result: DetectionResult,
+    scopedText: string
+  ): void {
     const contextualRisk =
       this.config.currentQueryRisky && (kind === "aiOverview" || kind === "autocomplete");
     const shouldMaskByContext = contextualRisk && hasSpoilerIntent(scopedText);
@@ -98,7 +215,7 @@ export class ContentProcessor {
 
   private buildSignature(text: string): string {
     const watchTitles = this.config.watchItems.map((item) => item.title.toLowerCase()).sort().join("|");
-    return `${this.config.enabled}:${this.config.sensitivity}:${this.config.guardAiOverview}:${this.config.guardAutocomplete}:${this.config.strictCharacterSpoilerMode}:${this.config.currentQueryRisky}:${this.config.currentQuery}:${this.config.rulePack.version}:${watchTitles}:${text}`;
+    return `${this.config.enabled}:${this.config.sensitivity}:${this.config.guardAiOverview}:${this.config.guardAutocomplete}:${this.config.strictCharacterSpoilerMode}:${this.config.useMlClassifier}:${ML_MODEL_VERSION}:${this.config.currentQueryRisky}:${this.config.currentQuery}:${this.config.rulePack.version}:${watchTitles}:${text}`;
   }
 
   private isGuardEnabledForKind(kind: CandidateKind): boolean {

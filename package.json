@@ -5,12 +5,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "node scripts/copy-wasm.mjs && vite",
+    "build": "node scripts/copy-wasm.mjs && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint . --ext .ts,.tsx"
+    "lint": "eslint . --ext .ts,.tsx",
+    "ml:seed": "python3 ml/scripts/augment_seed.py",
+    "ml:train": "python3 ml/scripts/train_classifier.py",
+    "ml:export": "python3 ml/scripts/export_onnx.py",
+    "ml:copy-wasm": "node scripts/copy-wasm.mjs"
   },
   "keywords": [
     "chrome-extension",
@@ -36,6 +40,7 @@
     "vitest": "^4.1.1"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   }

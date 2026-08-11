@@ -7,6 +7,7 @@ export interface ContentRuntimeConfig {
   guardRiskyQueries: boolean;
   guardAutocomplete: boolean;
   strictCharacterSpoilerMode: boolean;
+  useMlClassifier: boolean;
   currentQuery: string;
   currentQueryRisky: boolean;
   watchItems: WatchItem[];

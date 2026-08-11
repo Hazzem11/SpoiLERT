@@ -18,6 +18,7 @@ function createConfig(): ContentRuntimeConfig {
     guardRiskyQueries: true,
     guardAutocomplete: true,
     strictCharacterSpoilerMode: true,
+    useMlClassifier: false,
     currentQuery: "",
     currentQueryRisky: false,
     watchItems: [

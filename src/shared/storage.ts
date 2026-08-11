@@ -13,7 +13,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
   guardAiOverview: true,
   guardRiskyQueries: true,
   guardAutocomplete: true,
-  strictCharacterSpoilerMode: true
+  strictCharacterSpoilerMode: true,
+  useMlClassifier: true
 };
 
 export function normalizeSettings(settings?: Partial<UserSettings>): UserSettings {
@@ -26,7 +27,8 @@ export function normalizeSettings(settings?: Partial<UserSettings>): UserSetting
     guardRiskyQueries: settings?.guardRiskyQueries ?? DEFAULT_SETTINGS.guardRiskyQueries,
     guardAutocomplete: settings?.guardAutocomplete ?? DEFAULT_SETTINGS.guardAutocomplete,
     strictCharacterSpoilerMode:
-      settings?.strictCharacterSpoilerMode ?? DEFAULT_SETTINGS.strictCharacterSpoilerMode
+      settings?.strictCharacterSpoilerMode ?? DEFAULT_SETTINGS.strictCharacterSpoilerMode,
+    useMlClassifier: settings?.useMlClassifier ?? DEFAULT_SETTINGS.useMlClassifier
   };
 }
 

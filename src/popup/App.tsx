@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, JSX } from "react";
 
+import { requestClassifierStatus } from "../shared/messaging/client";
+import type { ClassifierStatus } from "../shared/messaging/classifier";
 import {
   DEFAULT_SETTINGS,
   getSettings,
@@ -31,11 +33,27 @@ const INITIAL_FORM: FormState = {
   aliasesText: ""
 };
 
+function formatClassifierStatus(status: ClassifierStatus): string {
+  switch (status.state) {
+    case "ready":
+      return `ready${status.version ? ` (v${status.version})` : ""}`;
+    case "loading":
+      return "loading…";
+    case "unavailable":
+      return status.error ?? "unavailable";
+    case "error":
+      return status.error ?? "error";
+    default:
+      return "idle";
+  }
+}
+
 export function App(): JSX.Element {
   const [settings, setSettingsState] = useState<UserSettings>(DEFAULT_SETTINGS);
   const [watchItems, setWatchItemsState] = useState<WatchItem[]>([]);
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [error, setError] = useState<string>("");
+  const [classifierStatus, setClassifierStatus] = useState<ClassifierStatus>({ state: "idle" });
   const extensionVersion = useMemo(() => {
     if (typeof chrome !== "undefined" && chrome.runtime?.getManifest) {
       return chrome.runtime.getManifest().version;
@@ -44,11 +62,38 @@ export function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const refreshStatus = async (): Promise<void> => {
+      const status = await requestClassifierStatus();
+      if (cancelled) {
+        return;
+      }
+      setClassifierStatus(status);
+      if (status.state === "idle" || status.state === "loading") {
+        timer = window.setTimeout(() => {
+          void refreshStatus();
+        }, 1500);
+      }
+    };
+
     void (async () => {
       const [loadedSettings, loadedItems] = await Promise.all([getSettings(), getWatchItems()]);
+      if (cancelled) {
+        return;
+      }
       setSettingsState(loadedSettings);
       setWatchItemsState(loadedItems);
+      await refreshStatus();
     })();
+
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+    };
   }, []);
 
   const isEditing = useMemo(() => Boolean(form.id), [form.id]);
@@ -70,7 +115,8 @@ export function App(): JSX.Element {
       | "guardAiOverview"
       | "guardRiskyQueries"
       | "guardAutocomplete"
-      | "strictCharacterSpoilerMode",
+      | "strictCharacterSpoilerMode"
+      | "useMlClassifier",
     value: boolean
   ): Promise<void> => {
     const next = { ...settings, [key]: value };
@@ -191,6 +237,17 @@ export function App(): JSX.Element {
             }
           />
         </label>
+        <label className="field field-toggle-row">
+          <span>On-device ML classifier</span>
+          <input
+            type="checkbox"
+            checked={settings.useMlClassifier}
+            onChange={(event) => void onToggleGuard("useMlClassifier", event.target.checked)}
+          />
+        </label>
+        <p className="muted" style={{ marginTop: "0.35rem" }}>
+          Model: {formatClassifierStatus(classifierStatus)}
+        </p>
       </section>
 
       <section className="card">

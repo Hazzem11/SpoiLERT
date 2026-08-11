@@ -1,7 +1,7 @@
 const manifest = {
   manifest_version: 3,
   name: "SpoilERT",
-  version: "0.1.0",
+  version: "0.1.2",
   description: "Reduce accidental spoilers on Google search.",
   icons: {
     16: "icons/icon16.png",
@@ -18,7 +18,7 @@ const manifest = {
     }
   },
   background: {
-    service_worker: "src/background/index.ts",
+    service_worker: "src/background/serviceWorker.ts",
     type: "module"
   },
   content_scripts: [
@@ -27,8 +27,21 @@ const manifest = {
       js: ["src/content/index.ts"]
     }
   ],
-  permissions: ["storage", "activeTab"],
-  host_permissions: ["https://www.google.com/*"]
+  permissions: ["storage", "activeTab", "offscreen"],
+  host_permissions: ["https://www.google.com/*"],
+  content_security_policy: {
+    extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  web_accessible_resources: [
+    {
+      resources: [
+        "models/spoiler-classifier/*",
+        "models/spoiler-classifier/**/*",
+        "wasm/*"
+      ],
+      matches: ["https://www.google.com/*"]
+    }
+  ]
 } satisfies chrome.runtime.ManifestV3;
 
 export default manifest;

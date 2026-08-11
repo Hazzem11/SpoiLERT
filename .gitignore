@@ -2,3 +2,10 @@ node_modules
 dist
 .DS_Store
 coverage
+ml/.venv/
+ml/artifacts/
+public/models/spoiler-classifier/onnx/model.onnx
+public/wasm/
+.chrome-spoilert-profile/
+*.pyc
+__pycache__/
